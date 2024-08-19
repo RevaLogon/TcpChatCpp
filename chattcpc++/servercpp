@@ -1,0 +1,131 @@
+#include <iostream>
+#include <string>
+#include <vector>
+#include <cstring>
+#include <thread>
+#include <mysql_driver.h>
+#include <mysql_connection.h>
+#include <cppconn/driver.h>
+#include <cppconn/exception.h>
+#include <cppconn/resultset.h>
+#include <cppconn/statement.h>
+#include <cppconn/prepared_statement.h>
+#include <cppconn/connection.h>
+#include <mysql_driver.h>
+
+const std::string HOST = "127.0.0.1";
+const int PORT = 5000;
+const int LISTENER_LIMIT = 10;
+std::vector<std::pair<std::string, int>> active_clients;
+
+sql::mysql::MySQL_Driver* driver;
+
+sql::Connection* createServerConnection(const std::string& host_name, const std::string& user_name, const std::string& user_password) {
+    sql::Connection* connection = nullptr;
+    try {
+        connection = driver->connect(host_name, user_name, user_password);
+        std::cout << "MySQL Database connection successful" << std::endl;
+    }
+    catch (sql::SQLException& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
+    return connection;
+}
+
+void createDatabase(sql::Connection* connection, const std::string& query) {
+    sql::Statement* stmt = connection->createStatement();
+    try {
+        stmt->execute(query);
+        std::cout << "Database created successfully" << std::endl;
+    }
+    catch (sql::SQLException& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
+    delete stmt;
+}
+
+sql::Connection* createDbConnection(const std::string& host_name, const std::string& user_name, const std::string& user_password, const std::string& db_name) {
+    sql::Connection* connection = nullptr;
+    try {
+        connection = driver->connect(host_name, user_name, user_password);
+        connection->setSchema(db_name);
+        std::cout << "MySQL Database connection successful" << std::endl;
+    }
+    catch (sql::SQLException& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
+    return connection;
+}
+
+void listenForMessages(int client_socket, const std::string& username) {
+    char buffer[4096];
+    while (true) {
+        int bytes_received = recv(client_socket, buffer, sizeof(buffer), 0);
+        if (bytes_received > 0) {
+            buffer[bytes_received] = '\0';
+            std::string message = username + "~" + buffer;
+        }
+        else {
+            std::cout << "Kullanici olan " << username << "'den gelen mesaj bos." << std::endl;
+        }
+    }
+}
+
+void sendMessageToClient(int client_socket, const std::string& message) {
+    send(client_socket, message.c_str(), message.length(), 0);
+}
+
+void sendMessagesToAll(const std::string& message) {
+    for (const auto& client : active_clients) {
+        sendMessageToClient(client.second, message);
+    }
+}
+
+void clientHandler(int client_socket) {
+}
+
+int main() {
+    driver = sql::mysql::get_mysql_driver_instance();
+
+    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (server_socket == -1) {
+        std::cerr << "Error creating socket" << std::endl;
+        return 1;
+    }
+
+    sockaddr_in server_address;
+    server_address.sin_family = AF_INET;
+    server_address.sin_port = htons(PORT);
+    server_address.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(server_socket, (struct sockaddr*)&server_address, sizeof(server_address)) == -1) {
+        std::cerr << "Error binding the socket" << std::endl;
+        return 1;
+    }
+
+    if (listen(server_socket, LISTENER_LIMIT) == -1) {
+        std::cerr << "Error listening on the socket" << std::endl;
+        return 1;
+    }
+
+	
+
+    while (true) {
+        sockaddr_in client_address;
+        int client_socket = accept(server_socket, (struct sockaddr*)&client_address, &sizeof(client_address));
+
+        if (client_socket == -1) {
+            std::cerr << "Error accepting client connection" << std::endl;
+            continue;
+        }
+
+        std::cout << "Pigeon'a baglanan kullanicilar: " << inet_ntoa(client_address.sin_addr) << " " << ntohs(client_address.sin_port) << std::endl;
+
+        std::thread(clientHandler, client_socket).detach();
+    }
+
+    close(server_socket);
+    return 0;
+}
+

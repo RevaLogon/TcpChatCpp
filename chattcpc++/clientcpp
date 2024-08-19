@@ -1,0 +1,142 @@
+#include <QApplication>
+#include <QWidget>
+#include <QPushButton>
+#include <QLabel>
+#include <QLineEdit>
+#include <QTextEdit>
+#include <QVBoxLayout>
+#include <QTcpSocket>
+#include <QHostAddress>
+#include <QThread>
+#include <QMessageBox>
+#include <QJsonObject>
+#include <QJsonDocument>
+
+class PigeonChat : public QWidget {
+    Q_OBJECT
+
+public:
+    PigeonChat(QWidget *parent = nullptr) : QWidget(parent) {
+        setupUi();
+        setupSocket();
+    }
+
+private:
+    QTcpSocket *clientSocket;
+    QLineEdit *usernameTextbox;
+    QLineEdit *passwordTextbox;
+    QLineEdit *messageTextbox;
+    QTextEdit *messageBox;
+    QPushButton *connectButton;
+    QPushButton *sendButton;
+
+    void setupUi() {
+        QVBoxLayout *layout = new QVBoxLayout;
+
+        QLabel *usernameLabel = new QLabel("Isim Giriniz:");
+        layout->addWidget(usernameLabel);
+
+        usernameTextbox = new QLineEdit;
+        layout->addWidget(usernameTextbox);
+
+        QLabel *passwordLabel = new QLabel("Şifre Giriniz:");
+        layout->addWidget(passwordLabel);
+
+        passwordTextbox = new QLineEdit;
+        passwordTextbox->setEchoMode(QLineEdit::Password);
+        layout->addWidget(passwordTextbox);
+
+        connectButton = new QPushButton("Gir");
+        layout->addWidget(connectButton);
+
+        messageBox = new QTextEdit;
+        messageBox->setReadOnly(true);
+        layout->addWidget(messageBox);
+
+        messageTextbox = new QLineEdit;
+        messageTextbox->setPlaceholderText("Mesajınızı buraya yazın...");
+        layout->addWidget(messageTextbox);
+
+        sendButton = new QPushButton("Gönder");
+        layout->addWidget(sendButton);
+
+        setLayout(layout);
+
+        connect(connectButton, &QPushButton::clicked, this, &PigeonChat::connectToServer);
+        connect(sendButton, &QPushButton::clicked, this, &PigeonChat::sendMessage);
+    }
+
+    void setupSocket() {
+        clientSocket = new QTcpSocket(this);
+        connect(clientSocket, &QTcpSocket::readyRead, this, &PigeonChat::readData);
+    }
+
+    void connectToServer() {
+        QString host = "127.0.0.1";
+        quint16 port = 5000;
+
+        clientSocket->connectToHost(QHostAddress(host), port);
+
+        if (clientSocket->waitForConnected()) {
+            qDebug() << "Pigeon sizi basariyla server'a bagladi.";
+            addMessage("[SERVER] Bilgileriniz kontrol ediliyor...");
+            addMessage("[SERVER] Bilgileriniz doğru olunca server'a bağlanacaksınız.");
+            connectButton->setDisabled(true);
+
+            QString username = usernameTextbox->text();
+            QString password = passwordTextbox->text();
+
+            if (!username.isEmpty() && !password.isEmpty()) {
+                QJsonObject jsonObject;
+                jsonObject["usernameclient"] = username;
+                jsonObject["passwordclient"] = password;
+                QJsonDocument jsonDocument(jsonObject);
+                QByteArray jsonData = jsonDocument.toJson();
+                clientSocket->write(jsonData);
+                usernameTextbox->clear();
+                passwordTextbox->clear();
+                messageTextbox->setEnabled(true);
+                sendButton->setEnabled(true);
+            } else {
+                QMessageBox::critical(this, "Hata!", "Kullanıcı adınızı ve şifrenizi boş bırakmayınız.");
+            }
+        } else {
+            qDebug() << "Yeni giriş";
+        }
+    }
+
+    void sendMessage() {
+        QString message = messageTextbox->text();
+        if (!message.isEmpty()) {
+            clientSocket->write(message.toUtf8());
+            messageTextbox->clear();
+        } else {
+            QMessageBox::critical(this, "Boş mesaj", "Ileti boş birakilamaz.");
+        }
+    }
+
+    void readData() {
+        QString message = clientSocket->readAll();
+        if (!message.isEmpty()) {
+            messageBox->append(message);
+        } else {
+            QMessageBox::critical(this, "Hata", "Kullanici'nin ilettigi gonderi bos.");
+        }
+    }
+
+    void addMessage(const QString &message) {
+        messageBox->append(message);
+    }
+};
+
+int main(int argc, char *argv[]) {
+    QApplication app(argc, argv);
+
+    PigeonChat pigeonChat;
+    pigeonChat.show();
+
+    return app.exec();
+}
+
+#include "main.moc"
+
